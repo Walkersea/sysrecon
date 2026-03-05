@@ -1,0 +1,1708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SYSRECON // DEEP SCAN v2.1</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #00ff41;
+    --green-dim: #00a82a;
+    --green-glow: rgba(0,255,65,0.15);
+    --amber: #ffb000;
+    --red: #ff2244;
+    --cyan: #00e5ff;
+    --bg: #020a04;
+    --panel: #030f05;
+    --border: #00ff4133;
+    --border-bright: #00ff4166;
+    --text: #b0ffbe;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--green);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* Scanlines */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.15) 2px,
+      rgba(0,0,0,0.15) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* Vignette */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.7) 100%);
+    pointer-events: none;
+    z-index: 9998;
+  }
+
+  /* Noise texture */
+  @keyframes noise {
+    0%,100% { background-position: 0 0; }
+    25% { background-position: 2% 3%; }
+    50% { background-position: -1% -2%; }
+    75% { background-position: 1% -1%; }
+  }
+
+  .noise-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    opacity: 0.03;
+    pointer-events: none;
+    z-index: 9997;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    background-size: 256px 256px;
+    animation: noise 0.5s steps(1) infinite;
+  }
+
+  /* Header */
+  .header {
+    border-bottom: 1px solid var(--border-bright);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(90deg, rgba(0,255,65,0.05) 0%, transparent 100%);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(4px);
+  }
+
+  .logo {
+    font-family: 'Orbitron', monospace;
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    color: var(--green);
+    text-shadow: 0 0 20px var(--green), 0 0 40px rgba(0,255,65,0.3);
+  }
+
+  .logo span { color: var(--amber); }
+
+  .header-status {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    font-size: 11px;
+    color: var(--green-dim);
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 1.5s infinite;
+  }
+
+  @keyframes pulse {
+    0%,100% { opacity: 1; box-shadow: 0 0 8px var(--green); }
+    50% { opacity: 0.4; box-shadow: 0 0 2px var(--green); }
+  }
+
+  /* Main grid */
+  .main {
+    padding: 16px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  /* Panel */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+
+  .panel:hover { border-color: var(--border-bright); }
+
+  .panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--green), transparent);
+    opacity: 0.6;
+  }
+
+  .panel-header {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,255,65,0.04);
+  }
+
+  .panel-icon { font-size: 16px; }
+
+  .panel-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--green);
+    text-transform: uppercase;
+    text-shadow: 0 0 10px rgba(0,255,65,0.5);
+  }
+
+  .panel-body { padding: 12px; }
+
+  /* Data rows */
+  .data-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(0,255,65,0.06);
+    gap: 8px;
+  }
+
+  .data-row:last-child { border-bottom: none; }
+
+  .data-key {
+    color: var(--green-dim);
+    font-size: 11px;
+    flex-shrink: 0;
+    min-width: 100px;
+  }
+
+  .data-val {
+    color: var(--text);
+    font-size: 11px;
+    text-align: right;
+    word-break: break-all;
+  }
+
+  .data-val.highlight { color: var(--cyan); }
+  .data-val.warn { color: var(--amber); }
+  .data-val.danger { color: var(--red); }
+  .data-val.loading { color: var(--green-dim); animation: blink 1s infinite; }
+
+  @keyframes blink {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* Span full width */
+  .col-span-2 { grid-column: span 2; }
+  .col-span-3 { grid-column: span 3; }
+
+  /* Top bar - scan status */
+  .scan-bar {
+    grid-column: span 3;
+    padding: 10px 16px;
+    border: 1px solid var(--border-bright);
+    background: rgba(0,255,65,0.03);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 12px;
+  }
+
+  .scan-bar-label {
+    font-family: 'Orbitron', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--green-dim);
+  }
+
+  .scan-progress-wrap {
+    flex: 1;
+    height: 4px;
+    background: rgba(0,255,65,0.1);
+    overflow: hidden;
+  }
+
+  .scan-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green-dim), var(--green));
+    box-shadow: 0 0 8px var(--green);
+    transition: width 0.5s ease;
+    width: 0%;
+  }
+
+  .scan-percent {
+    font-family: 'VT323', monospace;
+    font-size: 20px;
+    color: var(--green);
+    min-width: 48px;
+    text-align: right;
+  }
+
+  /* Rating display */
+  .rating-display {
+    text-align: center;
+    padding: 10px 0;
+  }
+
+  .rating-number {
+    font-family: 'VT323', monospace;
+    font-size: 80px;
+    line-height: 1;
+    text-shadow: 0 0 30px currentColor;
+  }
+
+  .rating-label {
+    font-family: 'Orbitron', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    margin-top: 4px;
+    opacity: 0.7;
+  }
+
+  .rating-bars { margin-top: 12px; }
+
+  .rating-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 10px;
+  }
+
+  .rating-bar-label { color: var(--green-dim); width: 60px; flex-shrink: 0; }
+
+  .rating-bar-track {
+    flex: 1;
+    height: 6px;
+    background: rgba(0,255,65,0.1);
+    overflow: hidden;
+  }
+
+  .rating-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green-dim), var(--green));
+    box-shadow: 0 0 6px var(--green);
+    transition: width 1.5s ease;
+    width: 0;
+  }
+
+  .rating-bar-val { color: var(--text); width: 30px; text-align: right; font-size: 10px; }
+
+  /* Speed/Ping test */
+  .test-btn {
+    display: block;
+    width: 100%;
+    padding: 8px;
+    background: transparent;
+    border: 1px solid var(--border-bright);
+    color: var(--green);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    transition: all 0.2s;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+
+  .test-btn:hover {
+    background: rgba(0,255,65,0.1);
+    box-shadow: 0 0 12px rgba(0,255,65,0.2), inset 0 0 12px rgba(0,255,65,0.05);
+    color: #fff;
+  }
+
+  .test-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .test-result {
+    font-family: 'VT323', monospace;
+    font-size: 36px;
+    text-align: center;
+    padding: 6px 0;
+    text-shadow: 0 0 20px currentColor;
+  }
+
+  .test-unit {
+    font-size: 14px;
+    color: var(--green-dim);
+    vertical-align: super;
+  }
+
+  .ping-list { margin-top: 6px; }
+
+  .ping-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    font-size: 11px;
+    border-bottom: 1px solid rgba(0,255,65,0.06);
+  }
+
+  .ping-server { color: var(--green-dim); }
+  .ping-val { color: var(--cyan); }
+
+  /* Canvas fingerprint */
+  #fpCanvas { display: none; }
+
+  /* WebGL info box */
+  .webgl-info { word-break: break-word; }
+
+  /* Scrollable panel body */
+  .scrollable { max-height: 220px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-bright) transparent; }
+
+  /* Console log area */
+  .console-area {
+    background: #010601;
+    border: 1px solid var(--border);
+    padding: 8px;
+    font-size: 11px;
+    height: 140px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-bright) transparent;
+  }
+
+  .log-line { margin-bottom: 2px; }
+  .log-line.info { color: var(--green-dim); }
+  .log-line.ok { color: var(--green); }
+  .log-line.warn { color: var(--amber); }
+  .log-line.err { color: var(--red); }
+
+  /* Geo map placeholder */
+  .geo-visual {
+    width: 100%;
+    height: 80px;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--green-dim);
+    font-size: 11px;
+    margin-bottom: 8px;
+    background: repeating-linear-gradient(
+      45deg,
+      rgba(0,255,65,0.02),
+      rgba(0,255,65,0.02) 10px,
+      transparent 10px,
+      transparent 20px
+    );
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Network graph */
+  .net-graph {
+    width: 100%;
+    height: 60px;
+    border: 1px solid var(--border);
+    margin-bottom: 8px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .net-graph canvas { display: block; }
+
+  /* Section divider */
+  .divider {
+    grid-column: span 3;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 0;
+  }
+
+  .divider-line { flex: 1; height: 1px; background: var(--border); }
+  .divider-text {
+    font-family: 'Orbitron', monospace;
+    font-size: 9px;
+    letter-spacing: 4px;
+    color: var(--green-dim);
+  }
+
+  /* Threat level */
+  .threat-meter {
+    display: flex;
+    gap: 3px;
+    margin-top: 8px;
+  }
+
+  .threat-block {
+    flex: 1;
+    height: 20px;
+    background: rgba(0,255,65,0.1);
+    transition: background 0.5s;
+  }
+
+  /* Glitch animation on title */
+  @keyframes glitch {
+    0%,90%,100% { transform: none; text-shadow: 0 0 20px var(--green), 0 0 40px rgba(0,255,65,0.3); }
+    92% { transform: translateX(-2px); text-shadow: 2px 0 var(--red), -2px 0 var(--cyan); }
+    94% { transform: translateX(2px); text-shadow: -2px 0 var(--red), 2px 0 var(--cyan); }
+    96% { transform: none; }
+  }
+
+  .logo { animation: glitch 6s infinite; }
+
+  /* Typing cursor */
+  .cursor::after {
+    content: '█';
+    animation: blink 0.8s steps(1) infinite;
+  }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .badge-green { border-color: var(--green); color: var(--green); }
+  .badge-amber { border-color: var(--amber); color: var(--amber); }
+  .badge-red { border-color: var(--red); color: var(--red); }
+  .badge-cyan { border-color: var(--cyan); color: var(--cyan); }
+
+  /* IP display */
+  .ip-display {
+    font-family: 'VT323', monospace;
+    font-size: 28px;
+    color: var(--cyan);
+    text-shadow: 0 0 15px var(--cyan);
+    text-align: center;
+    padding: 8px 0;
+    letter-spacing: 3px;
+  }
+
+  @media (max-width: 1100px) {
+    .main { grid-template-columns: repeat(2, 1fr); }
+    .scan-bar, .divider, .col-span-3 { grid-column: span 2; }
+    .col-span-2 { grid-column: span 2; }
+  }
+
+  @media (max-width: 700px) {
+    .main { grid-template-columns: 1fr; }
+    .scan-bar, .divider, .col-span-3, .col-span-2 { grid-column: span 1; }
+  }
+</style>
+</head>
+<body>
+<div class="noise-overlay"></div>
+<canvas id="fpCanvas"></canvas>
+
+<header class="header">
+  <div class="logo">SYS<span>RECON</span></div>
+  <div class="header-status">
+    <span><span class="status-dot"></span> SCANNING</span>
+    <span id="headerTime">--:--:--</span>
+    <span id="headerDate">----</span>
+  </div>
+</header>
+
+<div class="main" id="mainGrid">
+
+  <!-- Scan Progress Bar -->
+  <div class="scan-bar">
+    <span class="scan-bar-label">DEEP SCAN STATUS</span>
+    <div class="scan-progress-wrap">
+      <div class="scan-progress-bar" id="scanBar"></div>
+    </div>
+    <span class="scan-percent" id="scanPct">0%</span>
+    <span id="scanStatus" style="font-size:11px;color:var(--green-dim)">INITIALIZING...</span>
+  </div>
+
+  <!-- SYSTEM INFO -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">⚙</span>
+      <span class="panel-title">System Identity</span>
+    </div>
+    <div class="panel-body">
+      <div class="data-row"><span class="data-key">OS Platform</span><span class="data-val highlight" id="dPlatform">—</span></div>
+      <div class="data-row"><span class="data-key">CPU Cores</span><span class="data-val highlight" id="dCores">—</span></div>
+      <div class="data-row"><span class="data-key">Device RAM</span><span class="data-val highlight" id="dRAM">—</span></div>
+      <div class="data-row"><span class="data-key">Touch Points</span><span class="data-val" id="dTouch">—</span></div>
+      <div class="data-row"><span class="data-key">Max Touch</span><span class="data-val" id="dMaxTouch">—</span></div>
+      <div class="data-row"><span class="data-key">PDF Viewer</span><span class="data-val" id="dPDF">—</span></div>
+      <div class="data-row"><span class="data-key">Cookies</span><span class="data-val" id="dCookies">—</span></div>
+      <div class="data-row"><span class="data-key">Java</span><span class="data-val" id="dJava">—</span></div>
+      <div class="data-row"><span class="data-key">Do Not Track</span><span class="data-val" id="dDNT">—</span></div>
+      <div class="data-row"><span class="data-key">Online Status</span><span class="data-val" id="dOnline">—</span></div>
+    </div>
+  </div>
+
+  <!-- BROWSER INFO -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">🌐</span>
+      <span class="panel-title">Browser Profile</span>
+    </div>
+    <div class="panel-body">
+      <div class="data-row"><span class="data-key">App Name</span><span class="data-val" id="dAppName">—</span></div>
+      <div class="data-row"><span class="data-key">App Version</span><span class="data-val" id="dAppVersion" style="font-size:10px">—</span></div>
+      <div class="data-row"><span class="data-key">Language</span><span class="data-val highlight" id="dLang">—</span></div>
+      <div class="data-row"><span class="data-key">Languages</span><span class="data-val" id="dLangs">—</span></div>
+      <div class="data-row"><span class="data-key">Vendor</span><span class="data-val" id="dVendor">—</span></div>
+      <div class="data-row"><span class="data-key">Product</span><span class="data-val" id="dProduct">—</span></div>
+      <div class="data-row"><span class="data-key">Product Sub</span><span class="data-val" id="dProductSub">—</span></div>
+      <div class="data-row"><span class="data-key">WebDriver</span><span class="data-val" id="dWebDriver">—</span></div>
+      <div class="data-row"><span class="data-key">ServiceWorker</span><span class="data-val" id="dSW">—</span></div>
+      <div class="data-row"><span class="data-key">Notifications</span><span class="data-val" id="dNotif">—</span></div>
+    </div>
+  </div>
+
+  <!-- DISPLAY INFO -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">🖥</span>
+      <span class="panel-title">Display Matrix</span>
+    </div>
+    <div class="panel-body">
+      <div class="data-row"><span class="data-key">Resolution</span><span class="data-val highlight" id="dRes">—</span></div>
+      <div class="data-row"><span class="data-key">Available</span><span class="data-val" id="dAvail">—</span></div>
+      <div class="data-row"><span class="data-key">Window Size</span><span class="data-val" id="dWindow">—</span></div>
+      <div class="data-row"><span class="data-key">Inner Size</span><span class="data-val" id="dInner">—</span></div>
+      <div class="data-row"><span class="data-key">Color Depth</span><span class="data-val highlight" id="dColorDepth">—</span></div>
+      <div class="data-row"><span class="data-key">Pixel Depth</span><span class="data-val" id="dPixelDepth">—</span></div>
+      <div class="data-row"><span class="data-key">Pixel Ratio</span><span class="data-val" id="dPixelRatio">—</span></div>
+      <div class="data-row"><span class="data-key">Orientation</span><span class="data-val" id="dOrientation">—</span></div>
+      <div class="data-row"><span class="data-key">Color Gamut</span><span class="data-val" id="dColorGamut">—</span></div>
+      <div class="data-row"><span class="data-key">HDR</span><span class="data-val" id="dHDR">—</span></div>
+    </div>
+  </div>
+
+  <!-- GPU INFO -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">⚡</span>
+      <span class="panel-title">GPU / WebGL</span>
+    </div>
+    <div class="panel-body">
+      <div class="data-row"><span class="data-key">Renderer</span><span class="data-val highlight webgl-info" id="dGPU">—</span></div>
+      <div class="data-row"><span class="data-key">Vendor</span><span class="data-val webgl-info" id="dGPUVendor">—</span></div>
+      <div class="data-row"><span class="data-key">Unmasked Renderer</span><span class="data-val highlight webgl-info" id="dGPUUnmasked">—</span></div>
+      <div class="data-row"><span class="data-key">Unmasked Vendor</span><span class="data-val webgl-info" id="dGPUVendorUnmasked">—</span></div>
+      <div class="data-row"><span class="data-key">WebGL Version</span><span class="data-val" id="dWebGLVer">—</span></div>
+      <div class="data-row"><span class="data-key">GLSL Version</span><span class="data-val" id="dGLSL">—</span></div>
+      <div class="data-row"><span class="data-key">Max Texture Size</span><span class="data-val" id="dTexSize">—</span></div>
+      <div class="data-row"><span class="data-key">Max Viewport</span><span class="data-val" id="dViewport">—</span></div>
+      <div class="data-row"><span class="data-key">Max Render Buffer</span><span class="data-val" id="dRenderBuf">—</span></div>
+      <div class="data-row"><span class="data-key">Antialiasing</span><span class="data-val" id="dAA">—</span></div>
+    </div>
+  </div>
+
+  <!-- NETWORK -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">📡</span>
+      <span class="panel-title">Network Intel</span>
+    </div>
+    <div class="panel-body">
+      <div id="ipDisplay" class="ip-display loading">FETCHING IP...</div>
+      <div class="data-row"><span class="data-key">ISP</span><span class="data-val highlight" id="dISP">—</span></div>
+      <div class="data-row"><span class="data-key">Country</span><span class="data-val" id="dCountry">—</span></div>
+      <div class="data-row"><span class="data-key">Region</span><span class="data-val" id="dRegion">—</span></div>
+      <div class="data-row"><span class="data-key">City</span><span class="data-val" id="dCity">—</span></div>
+      <div class="data-row"><span class="data-key">Timezone</span><span class="data-val" id="dTimezone">—</span></div>
+      <div class="data-row"><span class="data-key">Connection Type</span><span class="data-val" id="dConnType">—</span></div>
+      <div class="data-row"><span class="data-key">Effective Type</span><span class="data-val highlight" id="dEffType">—</span></div>
+      <div class="data-row"><span class="data-key">Downlink</span><span class="data-val" id="dDownlink">—</span></div>
+      <div class="data-row"><span class="data-key">RTT</span><span class="data-val" id="dRTT">—</span></div>
+      <div class="data-row"><span class="data-key">Save Data</span><span class="data-val" id="dSaveData">—</span></div>
+    </div>
+  </div>
+
+  <!-- TIME & GEO -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">🕐</span>
+      <span class="panel-title">Time & Location</span>
+    </div>
+    <div class="panel-body">
+      <div class="data-row"><span class="data-key">Local Time</span><span class="data-val highlight" id="dLocalTime">—</span></div>
+      <div class="data-row"><span class="data-key">UTC Time</span><span class="data-val" id="dUTC">—</span></div>
+      <div class="data-row"><span class="data-key">Timezone</span><span class="data-val" id="dTZ">—</span></div>
+      <div class="data-row"><span class="data-key">TZ Offset</span><span class="data-val" id="dTZOffset">—</span></div>
+      <div class="data-row"><span class="data-key">DST Active</span><span class="data-val" id="dDST">—</span></div>
+      <div class="data-row"><span class="data-key">Geo Latitude</span><span class="data-val highlight" id="dLat">PENDING PERMISSION</span></div>
+      <div class="data-row"><span class="data-key">Geo Longitude</span><span class="data-val highlight" id="dLon">—</span></div>
+      <div class="data-row"><span class="data-key">Accuracy</span><span class="data-val" id="dAccuracy">—</span></div>
+      <div class="data-row"><span class="data-key">Altitude</span><span class="data-val" id="dAlt">—</span></div>
+      <div class="data-row"><span class="data-key">Speed (GPS)</span><span class="data-val" id="dSpeed">—</span></div>
+    </div>
+  </div>
+
+  <!-- divider -->
+  <div class="divider">
+    <div class="divider-line"></div>
+    <span class="divider-text">HARDWARE DIAGNOSTICS</span>
+    <div class="divider-line"></div>
+  </div>
+
+  <!-- BATTERY -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">🔋</span>
+      <span class="panel-title">Battery Status</span>
+    </div>
+    <div class="panel-body">
+      <div class="data-row"><span class="data-key">Level</span><span class="data-val highlight" id="dBatLevel">—</span></div>
+      <div class="data-row"><span class="data-key">Charging</span><span class="data-val" id="dBatCharging">—</span></div>
+      <div class="data-row"><span class="data-key">Charging Time</span><span class="data-val" id="dBatChargingTime">—</span></div>
+      <div class="data-row"><span class="data-key">Discharging Time</span><span class="data-val" id="dBatDischargingTime">—</span></div>
+      <!-- Visual battery bar -->
+      <div style="margin-top:10px">
+        <div style="font-size:10px;color:var(--green-dim);margin-bottom:4px;">CHARGE LEVEL</div>
+        <div style="height:14px;background:rgba(0,255,65,0.1);border:1px solid var(--border);position:relative;overflow:hidden;">
+          <div id="batBar" style="height:100%;background:linear-gradient(90deg,var(--green-dim),var(--green));box-shadow:0 0 8px var(--green);transition:width 1s;width:0%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MEMORY & PERFORMANCE -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">📊</span>
+      <span class="panel-title">Memory & Perf</span>
+    </div>
+    <div class="panel-body">
+      <div class="data-row"><span class="data-key">JS Heap Limit</span><span class="data-val highlight" id="dHeapLimit">—</span></div>
+      <div class="data-row"><span class="data-key">Heap Total</span><span class="data-val" id="dHeapTotal">—</span></div>
+      <div class="data-row"><span class="data-key">Heap Used</span><span class="data-val" id="dHeapUsed">—</span></div>
+      <div class="data-row"><span class="data-key">Page Load Time</span><span class="data-val highlight" id="dLoadTime">—</span></div>
+      <div class="data-row"><span class="data-key">DOM Interactive</span><span class="data-val" id="dDOMInt">—</span></div>
+      <div class="data-row"><span class="data-key">DNS Lookup</span><span class="data-val" id="dDNS">—</span></div>
+      <div class="data-row"><span class="data-key">TCP Connect</span><span class="data-val" id="dTCP">—</span></div>
+      <div class="data-row"><span class="data-key">TTFB</span><span class="data-val" id="dTTFB">—</span></div>
+      <div class="data-row"><span class="data-key">Transfer Size</span><span class="data-val" id="dTransferSize">—</span></div>
+      <div class="data-row"><span class="data-key">Resources Loaded</span><span class="data-val" id="dResources">—</span></div>
+    </div>
+  </div>
+
+  <!-- FINGERPRINT -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">🔏</span>
+      <span class="panel-title">Digital Fingerprint</span>
+    </div>
+    <div class="panel-body">
+      <div class="data-row"><span class="data-key">Canvas Hash</span><span class="data-val highlight" id="dCanvasHash">—</span></div>
+      <div class="data-row"><span class="data-key">WebGL Hash</span><span class="data-val" id="dWebGLHash">—</span></div>
+      <div class="data-row"><span class="data-key">Audio Hash</span><span class="data-val" id="dAudioHash">—</span></div>
+      <div class="data-row"><span class="data-key">Font Count</span><span class="data-val" id="dFonts">—</span></div>
+      <div class="data-row"><span class="data-key">Plugin Count</span><span class="data-val" id="dPlugins">—</span></div>
+      <div class="data-row"><span class="data-key">Storage Support</span><span class="data-val" id="dStorage">—</span></div>
+      <div class="data-row"><span class="data-key">IndexedDB</span><span class="data-val" id="dIDB">—</span></div>
+      <div class="data-row"><span class="data-key">WebRTC</span><span class="data-val" id="dWebRTC">—</span></div>
+      <div class="data-row"><span class="data-key">Incognito Est.</span><span class="data-val" id="dIncognito">—</span></div>
+      <div class="data-row"><span class="data-key">AdBlock Est.</span><span class="data-val" id="dAdblock">—</span></div>
+    </div>
+  </div>
+
+  <!-- divider -->
+  <div class="divider">
+    <div class="divider-line"></div>
+    <span class="divider-text">ACTIVE DIAGNOSTICS</span>
+    <div class="divider-line"></div>
+  </div>
+
+  <!-- PC RATING -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">🎯</span>
+      <span class="panel-title">PC Performance Rating</span>
+    </div>
+    <div class="panel-body">
+      <div class="rating-display">
+        <div class="rating-number" id="ratingNum" style="color:var(--green-dim)">--</div>
+        <div class="rating-label" id="ratingLabel">SCANNING...</div>
+      </div>
+      <div class="rating-bars">
+        <div class="rating-bar-row">
+          <span class="rating-bar-label">CPU</span>
+          <div class="rating-bar-track"><div class="rating-bar-fill" id="rCPU"></div></div>
+          <span class="rating-bar-val" id="rCPUVal">0</span>
+        </div>
+        <div class="rating-bar-row">
+          <span class="rating-bar-label">MEMORY</span>
+          <div class="rating-bar-track"><div class="rating-bar-fill" id="rMEM"></div></div>
+          <span class="rating-bar-val" id="rMEMVal">0</span>
+        </div>
+        <div class="rating-bar-row">
+          <span class="rating-bar-label">GPU</span>
+          <div class="rating-bar-track"><div class="rating-bar-fill" id="rGPU"></div></div>
+          <span class="rating-bar-val" id="rGPUVal">0</span>
+        </div>
+        <div class="rating-bar-row">
+          <span class="rating-bar-label">DISPLAY</span>
+          <div class="rating-bar-track"><div class="rating-bar-fill" id="rDISP"></div></div>
+          <span class="rating-bar-val" id="rDISPVal">0</span>
+        </div>
+        <div class="rating-bar-row">
+          <span class="rating-bar-label">NETWORK</span>
+          <div class="rating-bar-track"><div class="rating-bar-fill" id="rNET"></div></div>
+          <span class="rating-bar-val" id="rNETVal">0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PING TEST -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">📶</span>
+      <span class="panel-title">Ping Test</span>
+    </div>
+    <div class="panel-body">
+      <button class="test-btn" id="pingBtn" onclick="runPingTest()">▶ INITIATE PING SWEEP</button>
+      <div class="test-result" id="pingResult" style="color:var(--green-dim)">—<span class="test-unit">ms</span></div>
+      <div class="ping-list" id="pingList"></div>
+    </div>
+  </div>
+
+  <!-- SPEED TEST -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">⚡</span>
+      <span class="panel-title">Speed Test</span>
+    </div>
+    <div class="panel-body">
+      <button class="test-btn" id="speedBtn" onclick="runSpeedTest()">▶ RUN SPEED TEST</button>
+      <div style="display:flex;gap:10px;margin-bottom:8px;">
+        <div style="flex:1;text-align:center;">
+          <div style="font-size:10px;color:var(--green-dim);margin-bottom:2px;">DOWNLOAD</div>
+          <div class="test-result" id="dlResult" style="color:var(--cyan)">—<span class="test-unit">Mbps</span></div>
+        </div>
+        <div style="flex:1;text-align:center;">
+          <div style="font-size:10px;color:var(--green-dim);margin-bottom:2px;">LATENCY</div>
+          <div class="test-result" id="latResult" style="color:var(--amber)">—<span class="test-unit">ms</span></div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--green-dim);" id="speedStatus">AWAITING COMMAND</div>
+      <div style="margin-top:8px;">
+        <div style="height:4px;background:rgba(0,255,65,0.1);overflow:hidden;">
+          <div id="speedBar" style="height:100%;background:linear-gradient(90deg,var(--cyan),var(--green));width:0%;transition:width 0.3s;box-shadow:0 0 8px var(--cyan);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- divider -->
+  <div class="divider">
+    <div class="divider-line"></div>
+    <span class="divider-text">ADVANCED RECON</span>
+    <div class="divider-line"></div>
+  </div>
+
+  <!-- USER AGENT -->
+  <div class="panel col-span-2">
+    <div class="panel-header">
+      <span class="panel-icon">🔍</span>
+      <span class="panel-title">User Agent String</span>
+    </div>
+    <div class="panel-body">
+      <div style="background:#010601;border:1px solid var(--border);padding:8px;font-size:10px;color:var(--text);word-break:break-all;line-height:1.6;" id="dUA">—</div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;" id="uaBadges"></div>
+    </div>
+  </div>
+
+  <!-- MEDIA DEVICES -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">🎙</span>
+      <span class="panel-title">Media Devices</span>
+    </div>
+    <div class="panel-body">
+      <div class="data-row"><span class="data-key">Cameras</span><span class="data-val highlight" id="dCameras">—</span></div>
+      <div class="data-row"><span class="data-key">Microphones</span><span class="data-val highlight" id="dMics">—</span></div>
+      <div class="data-row"><span class="data-key">Speakers</span><span class="data-val" id="dSpeakers">—</span></div>
+      <div class="data-row"><span class="data-key">WebCam</span><span class="data-val" id="dWebcam">—</span></div>
+      <div class="data-row"><span class="data-key">WebAudio</span><span class="data-val" id="dWebAudio">—</span></div>
+      <div class="data-row"><span class="data-key">MIDI</span><span class="data-val" id="dMIDI">—</span></div>
+      <div class="data-row"><span class="data-key">Gamepad</span><span class="data-val" id="dGamepad">—</span></div>
+      <div class="data-row"><span class="data-key">Bluetooth</span><span class="data-val" id="dBluetooth">—</span></div>
+      <div class="data-row"><span class="data-key">USB</span><span class="data-val" id="dUSB">—</span></div>
+      <div class="data-row"><span class="data-key">VR/AR</span><span class="data-val" id="dVR">—</span></div>
+    </div>
+  </div>
+
+  <!-- SECURITY & FEATURES -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">🛡</span>
+      <span class="panel-title">Security & APIs</span>
+    </div>
+    <div class="panel-body">
+      <div class="data-row"><span class="data-key">HTTPS</span><span class="data-val" id="dHTTPS">—</span></div>
+      <div class="data-row"><span class="data-key">Web Crypto</span><span class="data-val" id="dCrypto">—</span></div>
+      <div class="data-row"><span class="data-key">Credential Mgr</span><span class="data-val" id="dCreds">—</span></div>
+      <div class="data-row"><span class="data-key">Payment API</span><span class="data-val" id="dPayment">—</span></div>
+      <div class="data-row"><span class="data-key">Share API</span><span class="data-val" id="dShare">—</span></div>
+      <div class="data-row"><span class="data-key">Clipboard API</span><span class="data-val" id="dClipboard">—</span></div>
+      <div class="data-row"><span class="data-key">Permissions API</span><span class="data-val" id="dPerms">—</span></div>
+      <div class="data-row"><span class="data-key">Storage API</span><span class="data-val" id="dStorageAPI">—</span></div>
+      <div class="data-row"><span class="data-key">Idle Detection</span><span class="data-val" id="dIdle">—</span></div>
+      <div class="data-row"><span class="data-key">Screen Capture</span><span class="data-val" id="dScreenCapture">—</span></div>
+    </div>
+  </div>
+
+  <!-- CSS FEATURES -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">🎨</span>
+      <span class="panel-title">CSS & Render</span>
+    </div>
+    <div class="panel-body">
+      <div class="data-row"><span class="data-key">Prefers Dark</span><span class="data-val" id="dDarkMode">—</span></div>
+      <div class="data-row"><span class="data-key">Prefers Reduced</span><span class="data-val" id="dReducedMotion">—</span></div>
+      <div class="data-row"><span class="data-key">Contrast Pref</span><span class="data-val" id="dContrast">—</span></div>
+      <div class="data-row"><span class="data-key">Forced Colors</span><span class="data-val" id="dForcedColors">—</span></div>
+      <div class="data-row"><span class="data-key">CSS Grid</span><span class="data-val" id="dCSSGrid">—</span></div>
+      <div class="data-row"><span class="data-key">CSS Variables</span><span class="data-val" id="dCSSVars">—</span></div>
+      <div class="data-row"><span class="data-key">Flex</span><span class="data-val" id="dFlex">—</span></div>
+      <div class="data-row"><span class="data-key">Animations</span><span class="data-val" id="dAnimations">—</span></div>
+      <div class="data-row"><span class="data-key">Backdrop Filter</span><span class="data-val" id="dBackdrop">—</span></div>
+      <div class="data-row"><span class="data-key">Pointer Type</span><span class="data-val" id="dPointer">—</span></div>
+    </div>
+  </div>
+
+  <!-- PLUGINS -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-icon">🔌</span>
+      <span class="panel-title">Browser Plugins</span>
+    </div>
+    <div class="panel-body scrollable" id="pluginList">
+      <div style="color:var(--green-dim);font-size:11px;">SCANNING PLUGINS...</div>
+    </div>
+  </div>
+
+  <!-- CONSOLE LOG -->
+  <div class="panel col-span-2">
+    <div class="panel-header">
+      <span class="panel-icon">💻</span>
+      <span class="panel-title">Recon Log</span>
+    </div>
+    <div class="panel-body">
+      <div class="console-area" id="consoleArea"></div>
+    </div>
+  </div>
+
+  <!-- SCAN SUMMARY -->
+  <div class="panel col-span-3" style="margin-top:4px;">
+    <div class="panel-header">
+      <span class="panel-icon">🔎</span>
+      <span class="panel-title">Full Scan Summary</span>
+    </div>
+    <div class="panel-body" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
+      <div>
+        <div style="font-size:10px;color:var(--green-dim);letter-spacing:2px;margin-bottom:6px;">DATA POINTS</div>
+        <div style="font-family:'VT323',monospace;font-size:48px;color:var(--green);text-shadow:0 0 20px var(--green);" id="totalDataPoints">0</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--green-dim);letter-spacing:2px;margin-bottom:6px;">THREAT LEVEL</div>
+        <div style="font-family:'VT323',monospace;font-size:48px;" id="threatLevel">—</div>
+        <div class="threat-meter" id="threatMeter"></div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--green-dim);letter-spacing:2px;margin-bottom:6px;">UNIQUE ID</div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--cyan);word-break:break-all;" id="uniqueID">COMPUTING...</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--green-dim);letter-spacing:2px;margin-bottom:6px;">SCAN COMPLETE</div>
+        <div style="font-family:'VT323',monospace;font-size:24px;color:var(--green);" id="scanCompleteTime">—</div>
+        <div style="font-size:10px;color:var(--green-dim);margin-top:4px;" id="scanCompleteMsg">SCANNING IN PROGRESS...</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── CONSOLE LOG ──────────────────────────────────────────────────
+const logEl = document.getElementById('consoleArea');
+function log(msg, type='info') {
+  const line = document.createElement('div');
+  line.className = `log-line ${type}`;
+  const t = new Date().toLocaleTimeString('en-US',{hour12:false});
+  const prefix = {info:'[>]',ok:'[✓]',warn:'[!]',err:'[✗]'}[type]||'[>]';
+  line.textContent = `${t} ${prefix} ${msg}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── SCAN PROGRESS ────────────────────────────────────────────────
+let scanProgress = 0;
+let dataPoints = 0;
+function setScan(pct, status) {
+  document.getElementById('scanBar').style.width = pct + '%';
+  document.getElementById('scanPct').textContent = pct + '%';
+  document.getElementById('scanStatus').textContent = status;
+}
+function addDataPoints(n) {
+  dataPoints += n;
+  document.getElementById('totalDataPoints').textContent = dataPoints;
+}
+
+// ── HEADER CLOCK ─────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('headerTime').textContent = now.toLocaleTimeString('en-US',{hour12:false});
+  document.getElementById('headerDate').textContent = now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ── HELPER ──────────────────────────────────────────────────────
+function set(id, val, cls='') {
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.textContent = val;
+  el.className = 'data-val ' + cls;
+}
+function yesno(b) { return b ? 'YES' : 'NO'; }
+function supported(b) { return b ? 'SUPPORTED' : 'NOT SUPPORTED'; }
+
+// ── SYSTEM & BROWSER ─────────────────────────────────────────────
+function collectSystem() {
+  log('Collecting system identity...', 'info');
+  const n = navigator;
+  set('dPlatform', n.platform || 'N/A', 'highlight');
+  set('dCores', n.hardwareConcurrency ? n.hardwareConcurrency + ' cores' : 'N/A', 'highlight');
+  set('dRAM', n.deviceMemory ? n.deviceMemory + ' GB' : 'N/A', 'highlight');
+  set('dTouch', n.maxTouchPoints > 0 ? 'YES' : 'NO');
+  set('dMaxTouch', n.maxTouchPoints || 0);
+  set('dPDF', n.pdfViewerEnabled !== undefined ? yesno(n.pdfViewerEnabled) : 'N/A');
+  set('dCookies', yesno(n.cookieEnabled));
+  set('dJava', typeof n.javaEnabled === 'function' ? yesno(n.javaEnabled()) : 'N/A');
+  set('dDNT', n.doNotTrack || 'NOT SET', n.doNotTrack === '1' ? 'highlight' : '');
+  set('dOnline', n.onLine ? 'ONLINE' : 'OFFLINE', n.onLine ? 'highlight' : 'danger');
+
+  set('dAppName', n.appName || 'N/A');
+  set('dAppVersion', n.appVersion?.substring(0,60) + '...' || 'N/A');
+  set('dLang', n.language || 'N/A', 'highlight');
+  set('dLangs', (n.languages||[]).join(', ') || 'N/A');
+  set('dVendor', n.vendor || 'N/A');
+  set('dProduct', n.product || 'N/A');
+  set('dProductSub', n.productSub || 'N/A');
+  set('dWebDriver', yesno(n.webdriver), n.webdriver ? 'warn' : '');
+  set('dSW', supported('serviceWorker' in n));
+  set('dNotif', 'Notification' in window ? (Notification.permission||'N/A') : 'NOT SUPPORTED');
+
+  document.getElementById('dUA').textContent = n.userAgent;
+
+  // UA Badges
+  const badges = [];
+  if(/Chrome/.test(n.userAgent)) badges.push(['Chrome','badge-cyan']);
+  if(/Firefox/.test(n.userAgent)) badges.push(['Firefox','badge-amber']);
+  if(/Safari/.test(n.userAgent)&&!/Chrome/.test(n.userAgent)) badges.push(['Safari','badge-green']);
+  if(/Edge/.test(n.userAgent)) badges.push(['Edge','badge-cyan']);
+  if(/Mobile/.test(n.userAgent)) badges.push(['MOBILE','badge-amber']);
+  if(/Windows/.test(n.userAgent)) badges.push(['Windows','badge-green']);
+  if(/Mac/.test(n.userAgent)&&!/Mobile/.test(n.userAgent)) badges.push(['macOS','badge-green']);
+  if(/Linux/.test(n.userAgent)) badges.push(['Linux','badge-amber']);
+  if(/Android/.test(n.userAgent)) badges.push(['Android','badge-amber']);
+  if(/iPhone|iPad/.test(n.userAgent)) badges.push(['iOS','badge-amber']);
+  if(n.webdriver) badges.push(['BOT DETECTED','badge-red']);
+  const bc = document.getElementById('uaBadges');
+  bc.innerHTML = badges.map(([l,c])=>`<span class="badge ${c}">${l}</span>`).join('');
+
+  addDataPoints(22);
+  log(`Platform: ${n.platform} | Cores: ${n.hardwareConcurrency}`, 'ok');
+}
+
+// ── DISPLAY ──────────────────────────────────────────────────────
+function collectDisplay() {
+  log('Scanning display configuration...', 'info');
+  const s = screen;
+  set('dRes', `${s.width} × ${s.height}`, 'highlight');
+  set('dAvail', `${s.availWidth} × ${s.availHeight}`);
+  set('dWindow', `${window.outerWidth} × ${window.outerHeight}`);
+  set('dInner', `${window.innerWidth} × ${window.innerHeight}`);
+  set('dColorDepth', s.colorDepth + ' bit', 'highlight');
+  set('dPixelDepth', s.pixelDepth + ' bit');
+  set('dPixelRatio', window.devicePixelRatio || 1);
+  const ori = window.screen.orientation;
+  set('dOrientation', ori ? ori.type : 'N/A');
+
+  // Color gamut
+  let gamut = 'sRGB';
+  if(window.matchMedia('(color-gamut: rec2020)').matches) gamut = 'Rec2020';
+  else if(window.matchMedia('(color-gamut: p3)').matches) gamut = 'Display P3';
+  set('dColorGamut', gamut, gamut!=='sRGB' ? 'highlight' : '');
+  set('dHDR', yesno(window.matchMedia('(dynamic-range: high)').matches));
+
+  addDataPoints(10);
+  log(`Display: ${s.width}×${s.height} @ ${s.colorDepth}bit depth`, 'ok');
+}
+
+// ── GPU / WebGL ───────────────────────────────────────────────────
+function collectGPU() {
+  log('Probing GPU via WebGL...', 'info');
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if(!gl) { log('WebGL not supported', 'warn'); return; }
+
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    set('dGPU', gl.getParameter(gl.RENDERER) || 'N/A', 'highlight');
+    set('dGPUVendor', gl.getParameter(gl.VENDOR) || 'N/A');
+    if(ext) {
+      set('dGPUUnmasked', gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || 'N/A', 'highlight');
+      set('dGPUVendorUnmasked', gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) || 'N/A');
+    }
+    set('dWebGLVer', gl.getParameter(gl.VERSION) || 'N/A');
+    set('dGLSL', gl.getParameter(gl.SHADING_LANGUAGE_VERSION) || 'N/A');
+    set('dTexSize', gl.getParameter(gl.MAX_TEXTURE_SIZE) + ' px');
+    const vp = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+    set('dViewport', vp ? `${vp[0]} × ${vp[1]}` : 'N/A');
+    set('dRenderBuf', gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) + ' px');
+    const attribs = gl.getContextAttributes();
+    set('dAA', attribs ? yesno(attribs.antialias) : 'N/A');
+
+    // WebGL fingerprint hash
+    const ext2 = gl.getExtension('WEBGL_debug_renderer_info');
+    const hashStr = (ext2 ? gl.getParameter(ext2.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) + gl.getParameter(gl.VENDOR);
+    set('dWebGLHash', simpleHash(hashStr).toString(16).toUpperCase());
+
+    addDataPoints(10);
+    log(`GPU: ${ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)}`, 'ok');
+  } catch(e) {
+    log('GPU probe failed: ' + e.message, 'err');
+  }
+}
+
+// ── CANVAS FINGERPRINT ────────────────────────────────────────────
+function canvasFingerprint() {
+  try {
+    const c = document.createElement('canvas');
+    c.width = 240; c.height = 60;
+    const ctx = c.getContext('2d');
+    ctx.textBaseline = 'top';
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#ff6600';
+    ctx.fillRect(0,0,240,60);
+    ctx.fillStyle = '#069';
+    ctx.fillText('SysRecon 🔎 <canvas>', 2, 4);
+    ctx.fillStyle = 'rgba(102,204,0,0.7)';
+    ctx.fillText('SysRecon 🔎 <canvas>', 4, 6);
+    const data = c.toDataURL();
+    const hash = simpleHash(data).toString(16).toUpperCase();
+    set('dCanvasHash', hash, 'highlight');
+    log('Canvas fingerprint: ' + hash, 'ok');
+  } catch(e) {
+    set('dCanvasHash', 'BLOCKED');
+    log('Canvas fingerprint blocked', 'warn');
+  }
+}
+
+// ── AUDIO FINGERPRINT ─────────────────────────────────────────────
+function audioFingerprint() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const analyser = ctx.createAnalyser();
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    osc.connect(analyser);
+    analyser.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(0);
+    const data = new Float32Array(analyser.frequencyBinCount);
+    analyser.getFloatFrequencyData(data);
+    osc.stop();
+    ctx.close();
+    const hash = simpleHash(data.slice(0,10).join(',')).toString(16).toUpperCase();
+    set('dAudioHash', hash);
+    log('Audio fingerprint: ' + hash, 'ok');
+  } catch(e) {
+    set('dAudioHash', 'BLOCKED');
+  }
+}
+
+// ── SIMPLE HASH ────────────────────────────────────────────────────
+function simpleHash(str) {
+  let h = 2166136261;
+  for(let i=0;i<str.length;i++){
+    h ^= str.charCodeAt(i);
+    h = (h * 16777619) >>> 0;
+  }
+  return h;
+}
+
+// ── NETWORK CONNECTION API ────────────────────────────────────────
+function collectNetwork() {
+  log('Reading network connection info...', 'info');
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if(conn) {
+    set('dConnType', conn.type || 'N/A');
+    set('dEffType', conn.effectiveType || 'N/A', 'highlight');
+    set('dDownlink', conn.downlink !== undefined ? conn.downlink + ' Mbps' : 'N/A');
+    set('dRTT', conn.rtt !== undefined ? conn.rtt + ' ms' : 'N/A');
+    set('dSaveData', yesno(conn.saveData));
+    addDataPoints(5);
+  } else {
+    set('dConnType', 'API N/A', 'warn');
+    set('dEffType', 'API N/A', 'warn');
+  }
+  set('dTimezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'N/A');
+}
+
+// ── IP GEOLOCATION ────────────────────────────────────────────────
+async function fetchIP() {
+  log('Fetching IP geolocation...', 'info');
+  document.getElementById('ipDisplay').textContent = 'FETCHING...';
+  document.getElementById('ipDisplay').className = 'ip-display loading';
+  try {
+    const r = await fetch('https://ipapi.co/json/', {signal: AbortSignal.timeout(8000)});
+    const d = await r.json();
+    document.getElementById('ipDisplay').textContent = d.ip || 'N/A';
+    document.getElementById('ipDisplay').className = 'ip-display';
+    set('dISP', d.org || 'N/A', 'highlight');
+    set('dCountry', `${d.country_name} (${d.country_code})` || 'N/A');
+    set('dRegion', d.region || 'N/A');
+    set('dCity', d.city || 'N/A');
+    set('dTimezone', d.timezone || 'N/A');
+    addDataPoints(6);
+    log(`IP: ${d.ip} | ${d.city}, ${d.country_name}`, 'ok');
+    updateRating();
+  } catch(e) {
+    document.getElementById('ipDisplay').textContent = 'BLOCKED/ERROR';
+    document.getElementById('ipDisplay').className = 'ip-display';
+    set('dISP', 'FETCH FAILED', 'warn');
+    log('IP fetch failed: ' + e.message, 'err');
+  }
+}
+
+// ── TIME & GEO ────────────────────────────────────────────────────
+function collectTime() {
+  log('Collecting time & geolocation data...', 'info');
+  const now = new Date();
+  set('dLocalTime', now.toLocaleString());
+  set('dUTC', now.toUTCString());
+  set('dTZ', Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const offset = -now.getTimezoneOffset();
+  set('dTZOffset', (offset>=0?'+':'') + Math.floor(offset/60) + ':' + String(Math.abs(offset%60)).padStart(2,'0'));
+  const jan = new Date(now.getFullYear(),0,1);
+  const jul = new Date(now.getFullYear(),6,1);
+  const dstActive = now.getTimezoneOffset() < Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+  set('dDST', yesno(dstActive));
+  addDataPoints(5);
+
+  // Geolocation
+  if('geolocation' in navigator) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      const c = pos.coords;
+      set('dLat', c.latitude.toFixed(6), 'highlight');
+      set('dLon', c.longitude.toFixed(6), 'highlight');
+      set('dAccuracy', c.accuracy.toFixed(0) + ' m');
+      set('dAlt', c.altitude !== null ? c.altitude.toFixed(0) + ' m' : 'N/A');
+      set('dSpeed', c.speed !== null ? c.speed.toFixed(2) + ' m/s' : 'STATIONARY');
+      addDataPoints(5);
+      log(`Geolocation: ${c.latitude.toFixed(4)}, ${c.longitude.toFixed(4)}`, 'ok');
+    }, err => {
+      set('dLat', 'DENIED', 'warn');
+      set('dLon', 'DENIED', 'warn');
+      log('Geolocation denied: ' + err.message, 'warn');
+    });
+  } else {
+    set('dLat', 'NOT SUPPORTED', 'warn');
+  }
+}
+
+// ── BATTERY ───────────────────────────────────────────────────────
+async function collectBattery() {
+  log('Querying battery status...', 'info');
+  if('getBattery' in navigator) {
+    try {
+      const bat = await navigator.getBattery();
+      const pct = Math.round(bat.level * 100);
+      set('dBatLevel', pct + '%', pct < 20 ? 'danger' : pct < 50 ? 'warn' : 'highlight');
+      set('dBatCharging', bat.charging ? 'YES ⚡' : 'NO', bat.charging ? 'highlight' : '');
+      set('dBatChargingTime', bat.chargingTime === Infinity ? '—' : Math.round(bat.chargingTime/60) + ' min');
+      set('dBatDischargingTime', bat.dischargingTime === Infinity ? '—' : Math.round(bat.dischargingTime/60) + ' min');
+      document.getElementById('batBar').style.width = pct + '%';
+      addDataPoints(4);
+      log(`Battery: ${pct}% ${bat.charging ? '(charging)' : '(discharging)'}`, 'ok');
+    } catch(e) { log('Battery API error', 'warn'); set('dBatLevel','API ERROR','warn'); }
+  } else {
+    set('dBatLevel','NOT SUPPORTED','warn');
+    log('Battery API not supported', 'warn');
+  }
+}
+
+// ── PERFORMANCE ───────────────────────────────────────────────────
+function collectPerformance() {
+  log('Analyzing performance metrics...', 'info');
+  const perf = performance;
+  if(perf && perf.memory) {
+    set('dHeapLimit', (perf.memory.jsHeapSizeLimit/1048576).toFixed(0) + ' MB', 'highlight');
+    set('dHeapTotal', (perf.memory.totalJSHeapSize/1048576).toFixed(0) + ' MB');
+    set('dHeapUsed', (perf.memory.usedJSHeapSize/1048576).toFixed(0) + ' MB');
+  } else {
+    set('dHeapLimit','N/A'); set('dHeapTotal','N/A'); set('dHeapUsed','N/A');
+  }
+  const nav = perf.getEntriesByType('navigation')[0];
+  if(nav) {
+    set('dLoadTime', nav.loadEventEnd ? (nav.loadEventEnd - nav.startTime).toFixed(0) + ' ms' : 'N/A');
+    set('dDOMInt', nav.domInteractive ? (nav.domInteractive - nav.startTime).toFixed(0) + ' ms' : 'N/A');
+    set('dDNS', (nav.domainLookupEnd - nav.domainLookupStart).toFixed(2) + ' ms');
+    set('dTCP', (nav.connectEnd - nav.connectStart).toFixed(2) + ' ms');
+    set('dTTFB', (nav.responseStart - nav.requestStart).toFixed(2) + ' ms');
+    set('dTransferSize', nav.transferSize ? (nav.transferSize/1024).toFixed(1) + ' KB' : '0 KB');
+  }
+  const resources = perf.getEntriesByType('resource');
+  set('dResources', resources.length + ' files');
+  addDataPoints(10);
+  log('Performance data collected', 'ok');
+}
+
+// ── MEDIA DEVICES ─────────────────────────────────────────────────
+async function collectMediaDevices() {
+  log('Enumerating media devices...', 'info');
+  set('dWebAudio', supported('AudioContext' in window || 'webkitAudioContext' in window));
+  set('dMIDI', supported('requestMIDIAccess' in navigator));
+  set('dGamepad', supported('getGamepads' in navigator));
+  set('dBluetooth', supported('bluetooth' in navigator));
+  set('dUSB', supported('usb' in navigator));
+  set('dVR', supported('xr' in navigator));
+  set('dWebcam', supported('mediaDevices' in navigator));
+
+  if(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d=>d.kind==='videoinput').length;
+      const mics = devices.filter(d=>d.kind==='audioinput').length;
+      const spks = devices.filter(d=>d.kind==='audiooutput').length;
+      set('dCameras', cams, cams > 0 ? 'highlight' : '');
+      set('dMics', mics, mics > 0 ? 'highlight' : '');
+      set('dSpeakers', spks);
+      addDataPoints(3);
+      log(`Devices - Cameras:${cams} Mics:${mics} Speakers:${spks}`, 'ok');
+    } catch(e) {
+      set('dCameras','ENUM BLOCKED','warn');
+      set('dMics','ENUM BLOCKED','warn');
+    }
+  }
+}
+
+// ── SECURITY & APIS ───────────────────────────────────────────────
+function collectSecurity() {
+  log('Checking security APIs...', 'info');
+  set('dHTTPS', location.protocol==='https:' ? 'YES ✓' : 'NO ✗', location.protocol==='https:'?'highlight':'danger');
+  set('dCrypto', supported('crypto' in window && 'subtle' in window.crypto));
+  set('dCreds', supported('credentials' in navigator));
+  set('dPayment', supported('PaymentRequest' in window));
+  set('dShare', supported('share' in navigator));
+  set('dClipboard', supported('clipboard' in navigator));
+  set('dPerms', supported('permissions' in navigator));
+  set('dStorageAPI', supported('storage' in navigator));
+  set('dIdle', supported('IdleDetector' in window));
+  set('dScreenCapture', supported('getDisplayMedia' in (navigator.mediaDevices||{})));
+  addDataPoints(10);
+}
+
+// ── CSS FEATURES ──────────────────────────────────────────────────
+function collectCSS() {
+  log('Detecting CSS & rendering capabilities...', 'info');
+  const mq = window.matchMedia;
+  set('dDarkMode', mq('(prefers-color-scheme: dark)').matches ? 'DARK' : 'LIGHT', 'highlight');
+  set('dReducedMotion', yesno(mq('(prefers-reduced-motion: reduce)').matches));
+  set('dContrast', mq('(prefers-contrast: more)').matches ? 'MORE' : mq('(prefers-contrast: less)').matches ? 'LESS' : 'NO PREF');
+  set('dForcedColors', yesno(mq('(forced-colors: active)').matches));
+  set('dCSSGrid', supported(CSS.supports('display','grid')));
+  set('dCSSVars', supported(CSS.supports('--a','0')));
+  set('dFlex', supported(CSS.supports('display','flex')));
+  set('dAnimations', supported(CSS.supports('animation','a 1s')));
+  set('dBackdrop', supported(CSS.supports('backdrop-filter','blur(1px)')));
+  const pointer = mq('(pointer: fine)').matches ? 'FINE (mouse)' : mq('(pointer: coarse)').matches ? 'COARSE (touch)' : 'NONE';
+  set('dPointer', pointer);
+  addDataPoints(10);
+}
+
+// ── FINGERPRINT EXTRAS ─────────────────────────────────────────────
+async function collectFingerprint() {
+  log('Building digital fingerprint...', 'info');
+  // Fonts
+  const testFonts = ['Arial','Times New Roman','Helvetica','Georgia','Courier New','Verdana','Comic Sans MS','Impact','Trebuchet MS','Tahoma','Futura','Palatino','Century Gothic','Cambria','Calibri'];
+  let detectedFonts = 0;
+  for(const font of testFonts) {
+    if(document.fonts && await document.fonts.load(`12px "${font}"`).then(r=>r.length>0).catch(()=>false)) detectedFonts++;
+  }
+  set('dFonts', detectedFonts + '/' + testFonts.length + ' detected', 'highlight');
+
+  // Plugins
+  const plugs = navigator.plugins;
+  set('dPlugins', plugs.length);
+  const plist = document.getElementById('pluginList');
+  if(plugs.length === 0) {
+    plist.innerHTML = '<div style="color:var(--green-dim);font-size:11px;">NO PLUGINS DETECTED</div>';
+  } else {
+    plist.innerHTML = '';
+    for(let i=0;i<plugs.length;i++){
+      const row = document.createElement('div');
+      row.className = 'data-row';
+      row.innerHTML = `<span class="data-key">${i+1}.</span><span class="data-val" style="font-size:10px;">${plugs[i].name}</span>`;
+      plist.appendChild(row);
+    }
+  }
+
+  // Storage
+  const storages = [];
+  if(typeof localStorage !== 'undefined') try { localStorage.setItem('_t','1'); storages.push('localStorage'); } catch(e){}
+  if(typeof sessionStorage !== 'undefined') storages.push('sessionStorage');
+  if(typeof indexedDB !== 'undefined') { storages.push('IndexedDB'); set('dIDB','AVAILABLE','highlight'); } else set('dIDB','NOT SUPPORTED');
+  set('dStorage', storages.join(', ') || 'NONE');
+
+  // WebRTC
+  set('dWebRTC', supported('RTCPeerConnection' in window));
+
+  // Incognito detection (quota estimate)
+  let incognito = 'NO';
+  try {
+    if(navigator.storage && navigator.storage.estimate) {
+      const {quota} = await navigator.storage.estimate();
+      if(quota < 120000000) incognito = 'POSSIBLY YES';
+    }
+  } catch(e){}
+  set('dIncognito', incognito, incognito !== 'NO' ? 'warn' : '');
+
+  // AdBlock
+  let adblock = 'NO';
+  try {
+    const ab = document.createElement('div');
+    ab.setAttribute('class','adsbox');
+    ab.style.height = '1px';
+    document.body.appendChild(ab);
+    await new Promise(r=>setTimeout(r,100));
+    adblock = ab.offsetHeight === 0 ? 'DETECTED' : 'NO';
+    document.body.removeChild(ab);
+  } catch(e){}
+  set('dAdblock', adblock, adblock==='DETECTED' ? 'warn' : '');
+
+  addDataPoints(8);
+  log('Fingerprint built', 'ok');
+}
+
+// ── PC RATING ─────────────────────────────────────────────────────
+function computeRating() {
+  const n = navigator;
+  const cores = n.hardwareConcurrency || 2;
+  const ram = n.deviceMemory || 2;
+
+  const cpuScore = Math.min(10, Math.round((cores / 16) * 10));
+  const memScore = Math.min(10, Math.round((ram / 32) * 10));
+
+  // GPU score from renderer string
+  const gpuEl = document.getElementById('dGPUUnmasked');
+  const gpuStr = (gpuEl?.textContent || '').toLowerCase();
+  let gpuScore = 5;
+  if(gpuStr.includes('rtx 4090')||gpuStr.includes('rtx 4080')) gpuScore = 10;
+  else if(gpuStr.includes('rtx 40')||gpuStr.includes('rx 7900')) gpuScore = 9;
+  else if(gpuStr.includes('rtx 30')||gpuStr.includes('rx 6')) gpuScore = 8;
+  else if(gpuStr.includes('rtx 20')||gpuStr.includes('rx 5')) gpuScore = 7;
+  else if(gpuStr.includes('gtx 16')||gpuStr.includes('rx 5')) gpuScore = 6;
+  else if(gpuStr.includes('gtx 10')||gpuStr.includes('vega')) gpuScore = 5;
+  else if(gpuStr.includes('intel')||gpuStr.includes('iris')) gpuScore = 3;
+  else if(gpuStr.includes('angle')||gpuStr.includes('swiftshader')) gpuScore = 2;
+
+  const s = screen;
+  const pixels = s.width * s.height;
+  const dispScore = pixels >= 8294400 ? 10 : pixels >= 3686400 ? 8 : pixels >= 2073600 ? 6 : pixels >= 1036800 ? 5 : 3;
+
+  // Network score
+  const conn = navigator.connection;
+  let netScore = 5;
+  if(conn) {
+    if(conn.effectiveType==='4g') netScore = 8;
+    else if(conn.effectiveType==='3g') netScore = 5;
+    else if(conn.effectiveType==='2g') netScore = 2;
+    if(conn.downlink > 50) netScore = 10;
+    else if(conn.downlink > 10) netScore = 8;
+  }
+
+  const total = ((cpuScore + memScore + gpuScore + dispScore + netScore) / 5).toFixed(1);
+
+  setTimeout(() => {
+    const rn = document.getElementById('ratingNum');
+    rn.textContent = total;
+    const t = parseFloat(total);
+    rn.style.color = t >= 8 ? 'var(--green)' : t >= 5 ? 'var(--amber)' : 'var(--red)';
+    rn.style.textShadow = `0 0 30px ${rn.style.color}`;
+    const labels = {10:'GODLIKE',9:'ELITE',8:'HIGH-END',7:'GREAT',6:'ABOVE AVG',5:'AVERAGE',4:'BELOW AVG',3:'LOW-END',2:'POTATO',1:'ANCIENT'};
+    document.getElementById('ratingLabel').textContent = labels[Math.round(t)] || 'SCANNING';
+
+    document.getElementById('rCPU').style.width = (cpuScore*10)+'%';
+    document.getElementById('rMEM').style.width = (memScore*10)+'%';
+    document.getElementById('rGPU').style.width = (gpuScore*10)+'%';
+    document.getElementById('rDISP').style.width = (dispScore*10)+'%';
+    document.getElementById('rNET').style.width = (netScore*10)+'%';
+    document.getElementById('rCPUVal').textContent = cpuScore;
+    document.getElementById('rMEMVal').textContent = memScore;
+    document.getElementById('rGPUVal').textContent = gpuScore;
+    document.getElementById('rDISPVal').textContent = dispScore;
+    document.getElementById('rNETVal').textContent = netScore;
+
+    log(`PC Rating: ${total}/10 (CPU:${cpuScore} MEM:${memScore} GPU:${gpuScore} DISP:${dispScore} NET:${netScore})`, 'ok');
+  }, 1500);
+}
+
+// ── PING TEST ─────────────────────────────────────────────────────
+async function runPingTest() {
+  const btn = document.getElementById('pingBtn');
+  btn.disabled = true;
+  btn.textContent = '⟳ PINGING...';
+  document.getElementById('pingResult').innerHTML = '...<span class="test-unit">ms</span>';
+  document.getElementById('pingList').innerHTML = '';
+  log('Running ping sweep...', 'info');
+
+  const targets = [
+    {name:'Cloudflare DNS', url:'https://1.1.1.1/cdn-cgi/trace'},
+    {name:'Google DNS',     url:'https://dns.google/resolve?name=a.com&type=A'},
+    {name:'OpenDNS',        url:'https://api.openstreetmap.org/api/versions'},
+    {name:'ipapi.co',       url:'https://ipapi.co/ip/'},
+    {name:'JSONPlaceholder', url:'https://jsonplaceholder.typicode.com/todos/1'},
+  ];
+
+  const results = [];
+  for(const t of targets) {
+    try {
+      const t0 = performance.now();
+      await fetch(t.url, {method:'HEAD', mode:'no-cors', cache:'no-store', signal: AbortSignal.timeout(5000)});
+      const ms = Math.round(performance.now() - t0);
+      results.push(ms);
+      const cls = ms < 50 ? 'highlight' : ms < 150 ? '' : ms < 300 ? 'warn' : 'danger';
+      const row = document.createElement('div');
+      row.className = 'ping-item';
+      row.innerHTML = `<span class="ping-server">${t.name}</span><span class="ping-val data-val ${cls}">${ms} ms</span>`;
+      document.getElementById('pingList').appendChild(row);
+      log(`Ping ${t.name}: ${ms}ms`, ms>300?'warn':'ok');
+    } catch(e) {
+      const row = document.createElement('div');
+      row.className = 'ping-item';
+      row.innerHTML = `<span class="ping-server">${t.name}</span><span class="ping-val data-val danger">TIMEOUT</span>`;
+      document.getElementById('pingList').appendChild(row);
+    }
+  }
+
+  if(results.length > 0) {
+    const avg = Math.round(results.reduce((a,b)=>a+b,0)/results.length);
+    const prc = document.getElementById('pingResult');
+    prc.style.color = avg < 50 ? 'var(--green)' : avg < 150 ? 'var(--amber)' : 'var(--red)';
+    prc.innerHTML = `${avg}<span class="test-unit">ms avg</span>`;
+    log(`Ping avg: ${avg}ms`, 'ok');
+  }
+  btn.disabled = false;
+  btn.textContent = '▶ INITIATE PING SWEEP';
+}
+
+// ── SPEED TEST ────────────────────────────────────────────────────
+async function runSpeedTest() {
+  const btn = document.getElementById('speedBtn');
+  btn.disabled = true;
+  btn.textContent = '⟳ TESTING...';
+  document.getElementById('speedStatus').textContent = 'MEASURING LATENCY...';
+  document.getElementById('speedBar').style.width = '0%';
+  log('Initiating speed test...', 'info');
+
+  // Latency
+  try {
+    const t0 = performance.now();
+    await fetch('https://1.1.1.1/cdn-cgi/trace', {mode:'no-cors', cache:'no-store', signal: AbortSignal.timeout(5000)});
+    const lat = Math.round(performance.now() - t0);
+    document.getElementById('latResult').innerHTML = `${lat}<span class="test-unit">ms</span>`;
+    document.getElementById('latResult').style.color = lat < 50 ? 'var(--green)' : lat < 150 ? 'var(--amber)' : 'var(--red)';
+    log(`Latency: ${lat}ms`, 'ok');
+  } catch(e) {
+    document.getElementById('latResult').innerHTML = `ERR<span class="test-unit">ms</span>`;
+    log('Latency test failed', 'err');
+  }
+
+  document.getElementById('speedStatus').textContent = 'DOWNLOADING TEST FILE...';
+  document.getElementById('speedBar').style.width = '20%';
+
+  // Download speed - use a CDN file
+  const testUrls = [
+    'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js',
+  ];
+
+  let totalBytes = 0;
+  let totalTime = 0;
+
+  for(let i = 0; i < testUrls.length; i++) {
+    try {
+      const t0 = performance.now();
+      const r = await fetch(testUrls[i] + '?_=' + Date.now(), {cache:'no-store', signal: AbortSignal.timeout(15000)});
+      const blob = await r.blob();
+      const elapsed = (performance.now() - t0) / 1000;
+      totalBytes += blob.size;
+      totalTime += elapsed;
+      document.getElementById('speedBar').style.width = (20 + (i+1)*30) + '%';
+      log(`Downloaded ${(blob.size/1024).toFixed(0)}KB in ${elapsed.toFixed(2)}s`, 'ok');
+    } catch(e) {
+      log('Download chunk failed', 'warn');
+    }
+  }
+
+  document.getElementById('speedBar').style.width = '90%';
+  document.getElementById('speedStatus').textContent = 'COMPUTING RESULTS...';
+
+  if(totalBytes > 0 && totalTime > 0) {
+    const mbps = ((totalBytes * 8) / (totalTime * 1000000)).toFixed(2);
+    const dlEl = document.getElementById('dlResult');
+    dlEl.innerHTML = `${mbps}<span class="test-unit">Mbps</span>`;
+    const mbpsN = parseFloat(mbps);
+    dlEl.style.color = mbpsN > 50 ? 'var(--green)' : mbpsN > 10 ? 'var(--amber)' : 'var(--red)';
+    log(`Download speed: ${mbps} Mbps`, 'ok');
+    addDataPoints(2);
+    updateRating();
+  } else {
+    document.getElementById('dlResult').innerHTML = `—<span class="test-unit">Mbps</span>`;
+  }
+
+  document.getElementById('speedBar').style.width = '100%';
+  document.getElementById('speedStatus').textContent = 'TEST COMPLETE';
+  btn.disabled = false;
+  btn.textContent = '▶ RUN SPEED TEST';
+  setTimeout(()=>{ document.getElementById('speedBar').style.width='0%'; }, 3000);
+}
+
+// ── UNIQUE ID ─────────────────────────────────────────────────────
+function computeUniqueID() {
+  const parts = [
+    navigator.userAgent,
+    navigator.language,
+    screen.width, screen.height, screen.colorDepth,
+    navigator.hardwareConcurrency,
+    navigator.deviceMemory,
+    new Date().getTimezoneOffset(),
+    document.getElementById('dCanvasHash')?.textContent || '',
+  ];
+  const hash = simpleHash(parts.join('|'));
+  const uid = hash.toString(16).toUpperCase().padStart(8,'0');
+  const full = `${uid.slice(0,4)}-${uid.slice(4,8)}-${Date.now().toString(16).toUpperCase().slice(-4)}-RECON`;
+  document.getElementById('uniqueID').textContent = full;
+  return full;
+}
+
+// ── THREAT LEVEL ──────────────────────────────────────────────────
+function computeThreat() {
+  let threat = 0;
+  if(navigator.webdriver) threat += 3;
+  if(!navigator.cookieEnabled) threat += 1;
+  if(document.getElementById('dAdblock')?.textContent === 'DETECTED') threat += 1;
+  if(document.getElementById('dIncognito')?.textContent === 'POSSIBLY YES') threat += 2;
+  if(navigator.doNotTrack === '1') threat += 1;
+  threat = Math.min(10, threat);
+
+  const tEl = document.getElementById('threatLevel');
+  tEl.textContent = ['NONE','LOW','LOW','MEDIUM','MEDIUM','HIGH','HIGH','EXTREME','EXTREME','CRITICAL','CRITICAL'][threat] || 'UNKNOWN';
+  tEl.style.color = threat < 3 ? 'var(--green)' : threat < 6 ? 'var(--amber)' : 'var(--red)';
+  tEl.style.textShadow = `0 0 15px ${tEl.style.color}`;
+  tEl.style.fontSize = '24px';
+
+  const meter = document.getElementById('threatMeter');
+  meter.innerHTML = '';
+  for(let i=0;i<10;i++){
+    const b = document.createElement('div');
+    b.className='threat-block';
+    if(i<threat) b.style.background = threat<3?'var(--green)':threat<6?'var(--amber)':'var(--red)';
+    meter.appendChild(b);
+  }
+}
+
+// ── RATING UPDATE ─────────────────────────────────────────────────
+function updateRating() { computeRating(); }
+
+// ── MAIN SCAN ────────────────────────────────────────────────────
+async function runScan() {
+  log('═══ SYSRECON DEEP SCAN INITIATED ═══', 'ok');
+  setScan(5, 'COLLECTING SYSTEM DATA');
+  collectSystem();
+  await new Promise(r=>setTimeout(r,100));
+
+  setScan(15, 'SCANNING DISPLAY');
+  collectDisplay();
+  await new Promise(r=>setTimeout(r,100));
+
+  setScan(25, 'PROBING GPU');
+  collectGPU();
+  await new Promise(r=>setTimeout(r,100));
+
+  setScan(35, 'READING NETWORK');
+  collectNetwork();
+  await new Promise(r=>setTimeout(r,100));
+
+  setScan(45, 'COLLECTING TIME/GEO');
+  collectTime();
+  await new Promise(r=>setTimeout(r,100));
+
+  setScan(50, 'QUERYING BATTERY');
+  await collectBattery();
+
+  setScan(60, 'ANALYZING PERFORMANCE');
+  collectPerformance();
+  await new Promise(r=>setTimeout(r,100));
+
+  setScan(65, 'BUILDING CANVAS FINGERPRINT');
+  canvasFingerprint();
+  audioFingerprint();
+  await new Promise(r=>setTimeout(r,100));
+
+  setScan(75, 'ENUMERATING MEDIA DEVICES');
+  await collectMediaDevices();
+
+  setScan(82, 'CHECKING SECURITY APIs');
+  collectSecurity();
+  collectCSS();
+  await new Promise(r=>setTimeout(r,100));
+
+  setScan(90, 'FINGERPRINTING');
+  await collectFingerprint();
+
+  setScan(95, 'COMPUTING RATINGS');
+  computeRating();
+  computeThreat();
+  computeUniqueID();
+  await new Promise(r=>setTimeout(r,200));
+
+  setScan(100, 'SCAN COMPLETE ✓');
+  document.getElementById('scanCompleteTime').textContent = new Date().toLocaleTimeString('en-US',{hour12:false});
+  document.getElementById('scanCompleteMsg').textContent = `ALL SYSTEMS SCANNED — ${dataPoints} DATA POINTS EXTRACTED`;
+  log('═══ SCAN COMPLETE ═══', 'ok');
+
+  // Fetch IP last (network dependent)
+  fetchIP();
+}
+
+// ── INIT ────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  setTimeout(runScan, 300);
+});
+</script>
+</body>
+</html>
